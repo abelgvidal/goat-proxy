@@ -14,7 +14,9 @@ func main() {
 		// conectar con el backend
 		backendConn, err := net.Dial("tcp", "localhost:8500")
 		if err != nil {
-			log.Fatalf("Error connecting to backend: %v", err)
+			log.Printf("Error connecting to backend: %v", err)
+			http.Error(w, "backend unavailable", http.StatusBadGateway)
+			return
 		}
 		defer backendConn.Close()
 
