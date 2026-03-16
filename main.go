@@ -31,7 +31,8 @@ func filterOutHopByHopHeaders(header http.Header) {
 		"Trailer",
 		"Upgrade",
 		"Proxy-Authenticate",
-		"Proxy-Authorization"}
+		"Proxy-Authorization",
+	}
 	hopByHopHeaders = append(hopByHopHeaders, hopByHops...)
 	for _, h := range hopByHopHeaders {
 		header.Del(h)
