@@ -5,6 +5,6 @@
 ## Running
 
 ``` bash
-go run main.go
+BACKEND=localhost:8050 PROXY_PORT=8500 go run main.go
 ```
 

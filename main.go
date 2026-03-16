@@ -2,17 +2,63 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 )
+
+func filterOutHopByHopHeaders(header http.Header) {
+	var hopByHops []string
+
+	// Remove hop-by-hop headers as per RFC 2616 section 13.5.1
+	fields := header.Get("Connection")
+	if fields != "" {
+
+		hopByHops = strings.Split(fields, ",")
+		for i := range hopByHops {
+			hopByHops[i] = strings.TrimSpace(hopByHops[i])
+		}
+	}
+	hopByHopHeaders := []string{
+		"Connection",
+		"Keep-Alive",
+		"Transfer-Encoding",
+		"TE",
+		"Trailer",
+		"Upgrade",
+		"Proxy-Authenticate",
+		"Proxy-Authorization"}
+	hopByHopHeaders = append(hopByHopHeaders, hopByHops...)
+	for _, h := range hopByHopHeaders {
+		header.Del(h)
+	}
+}
 
 func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// conectar con el backend
-		backendConn, err := net.Dial("tcp", "localhost:8500")
+
+		for key, values := range r.Header {
+			log.Printf("%s: %v", key, values)
+		}
+
+		// remove hopbyhop headeers from request
+		filterOutHopByHopHeaders(r.Header)
+
+		for key, values := range r.Header {
+			log.Printf("Tras filtro ---> %s: %v", key, values)
+		}
+
+		// hey backend, you there?
+		backendAddr := os.Getenv("BACKEND")
+		if backendAddr == "" {
+			backendAddr = "localhost:8500"
+		}
+		backendConn, err := net.Dial("tcp", backendAddr)
 		if err != nil {
 			log.Printf("Error connecting to backend: %v", err)
 			http.Error(w, "backend unavailable", http.StatusBadGateway)
@@ -20,10 +66,10 @@ func main() {
 		}
 		defer backendConn.Close()
 
-		// manejar las solicitudes HTTP
+		// forward client request to backend
 		r.Write(backendConn)
 
-		// 3. Leer la respuesta del backend y copiarla al cliente
+		// reading Backend response
 		backendResp, err := http.ReadResponse(
 			bufio.NewReader(backendConn),
 			r,
@@ -34,7 +80,8 @@ func main() {
 		}
 		defer backendResp.Body.Close()
 
-		// 4. Copiar cabeceras y status
+		// filter and Copy headers and status
+		filterOutHopByHopHeaders(backendResp.Header)
 		for key, values := range backendResp.Header {
 			for _, v := range values {
 				w.Header().Add(key, v)
@@ -42,10 +89,15 @@ func main() {
 		}
 		w.WriteHeader(backendResp.StatusCode)
 
-		// 5. Copiar el body
+		// respond to client
 		io.Copy(w, backendResp.Body)
 	})
 
-	log.Println("FW-Proxy listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	port := os.Getenv("PROXY_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := fmt.Sprintf(":%s", port)
+	log.Printf("🐐 Goat-Proxy listening on %s 🐐", addr)
+	http.ListenAndServe(addr, nil)
 }
