@@ -9,7 +9,18 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 )
+
+type LoadBalancer struct {
+	backends []string
+	current  uint64 // para atomic
+}
+
+func (lb *LoadBalancer) next() string {
+	idx := atomic.AddUint64(&lb.current, 1)
+	return lb.backends[idx%uint64(len(lb.backends))]
+}
 
 func filterOutHopByHopHeaders(header http.Header) {
 	var hopByHops []string
@@ -41,6 +52,17 @@ func filterOutHopByHopHeaders(header http.Header) {
 
 func main() {
 
+	// get the list of backends from env variable
+	backendsEnv := os.Getenv("BACKENDS")
+	if backendsEnv == "" {
+		log.Fatal("BACKENDS environment variable is required")
+	}
+	backends := strings.Split(backendsEnv, ",")
+	for i := range backends {
+		backends[i] = strings.TrimSpace(backends[i])
+	}
+	lb := &LoadBalancer{backends: backends}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
 		for key, values := range r.Header {
@@ -54,11 +76,8 @@ func main() {
 			log.Printf("Tras filtro ---> %s: %v", key, values)
 		}
 
-		// hey backend, you there?
-		backendAddr := os.Getenv("BACKEND")
-		if backendAddr == "" {
-			backendAddr = "localhost:8500"
-		}
+		// we select the next backend in turn and say: hey backend, you there?
+		backendAddr := lb.next()
 		backendConn, err := net.Dial("tcp", backendAddr)
 		if err != nil {
 			log.Printf("Error connecting to backend: %v", err)
@@ -99,6 +118,6 @@ func main() {
 		port = "8080"
 	}
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf("🐐 Goat-Proxy listening on %s 🐐", addr)
+	log.Printf("🐐 Goat-Proxy listening on %s 🐐\nBackends: %s", addr, backendsEnv)
 	http.ListenAndServe(addr, nil)
 }
